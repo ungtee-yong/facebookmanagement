@@ -1,0 +1,186 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+}
+
+enum FilterKind {
+  INCLUDE
+  EXCLUDE
+}
+
+enum CommentStatus {
+  NEW
+  ASSIGNED
+  REPLIED
+  ARCHIVED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  role         UserRole  @default(ADMIN)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships  PageMember[]
+  replies      Reply[]
+  auditLogs    AuditLog[] @relation("AuditLogsActor")
+}
+
+model Page {
+  id                   String   @id @default(uuid())
+  fbPageId             String   @unique
+  name                 String?
+  pictureUrl           String?
+  isConnected          Boolean  @default(false)
+
+  // NOTE: store tokens securely in production (encryption / secret manager).
+  fbPageAccessToken    String?
+  fbTokenExpiresAt     DateTime?
+  connectedAt          DateTime?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  members              PageMember[]
+  filters              KeywordFilter[]
+  posts                Post[]
+
+  @@index([isConnected])
+}
+
+model PageMember {
+  id        String   @id @default(uuid())
+  pageId    String
+  userId    String
+  isOwner   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, userId])
+  @@index([userId])
+}
+
+model KeywordFilter {
+  id        String     @id @default(uuid())
+  pageId    String
+  kind      FilterKind @default(INCLUDE)
+  keyword   String
+  enabled   Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  page      Page       @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, kind])
+  @@index([pageId, enabled])
+  @@unique([pageId, kind, keyword])
+}
+
+model Post {
+  id           String    @id @default(uuid())
+  pageId       String
+  fbPostId     String
+
+  message      String?
+  permalinkUrl String?
+  pictureUrl   String?
+  createdTime  DateTime?
+  rawJson      Json?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  page         Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  comments     Comment[]
+
+  @@unique([pageId, fbPostId])
+  @@index([pageId])
+}
+
+model Comment {
+  id           String        @id @default(uuid())
+  postId       String
+  fbCommentId  String
+  status       CommentStatus @default(NEW)
+
+  fromName     String?
+  fromFbUserId String?
+  message      String?
+  createdTime  DateTime?
+  rawJson      Json?
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  post         Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  ticket       Ticket?
+  replies      Reply[]
+
+  @@unique([postId, fbCommentId])
+  @@index([status, createdAt])
+  @@index([postId])
+}
+
+model Ticket {
+  id         String   @id @default(uuid())
+  token      String   @unique
+  commentId  String   @unique
+  expiresAt  DateTime?
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  comment    Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
+
+model Reply {
+  id              String   @id @default(uuid())
+  commentId       String
+  userId          String?
+  message         String
+  createdAt       DateTime @default(now())
+
+  // Will be used once we implement "reply to Facebook comment"
+  sentToFacebookAt DateTime?
+
+  comment         Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?
+  action      String
+  entity      String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation("AuditLogsActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([entity, entityId])
+}
