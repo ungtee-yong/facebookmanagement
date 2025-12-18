@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+}
+
+enum KeywordRuleType {
+  INCLUDE
+  EXCLUDE
+}
+
+enum CommentMatchAction {
+  NONE
+  INCLUDED
+  EXCLUDED
+}
+
+enum ReplyStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String?
+  passwordHash String
+  role         UserRole   @default(ADMIN)
+  isActive     Boolean    @default(true)
+
+  pages        UserPage[]
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Page {
+  id        String     @id @default(cuid())
+  fbPageId  String     @unique
+  name      String
+  isActive  Boolean    @default(true)
+
+  users     UserPage[]
+  rules     KeywordRule[]
+  posts     Post[]
+  comments  FbComment[]
+  connection PageConnection?
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([isActive])
+}
+
+model UserPage {
+  id        String   @id @default(cuid())
+  userId    String
+  pageId    String
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, pageId])
+  @@index([pageId])
+}
+
+model FacebookAppConfig {
+  id        String   @id @default(cuid())
+  appId     String
+  appSecret String
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model PageConnection {
+  id                String   @id @default(cuid())
+  pageId            String   @unique
+  fbPageAccessToken String
+  connectedAt       DateTime @default(now())
+
+  page              Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+model KeywordRule {
+  id        String          @id @default(cuid())
+  pageId    String
+  type      KeywordRuleType
+  keyword   String
+  isActive  Boolean         @default(true)
+
+  page      Page            @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([pageId, isActive])
+}
+
+model Post {
+  id           String    @id @default(cuid())
+  pageId       String
+  fbPostId     String
+  message      String?
+  permalinkUrl String?
+  pictureUrl   String?
+  createdTime  DateTime?
+
+  page         Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  comments     FbComment[]
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([pageId, fbPostId])
+  @@index([pageId, createdAt])
+}
+
+model FbComment {
+  id            String            @id @default(cuid())
+  pageId        String
+  postId        String?
+  fbCommentId   String
+  fromName      String?
+  fromId        String?
+  message       String?
+  permalinkUrl  String?
+  createdTime   DateTime?
+  matchedAction CommentMatchAction @default(NONE)
+  rawPayload    Json?
+
+  page          Page              @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  post          Post?             @relation(fields: [postId], references: [id], onDelete: SetNull)
+  staffLink     StaffLink?
+  replies       Reply[]
+
+  createdAt     DateTime          @default(now())
+
+  @@unique([pageId, fbCommentId])
+  @@index([pageId, createdAt])
+}
+
+model StaffLink {
+  id        String    @id @default(cuid())
+  commentId String    @unique
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  comment   FbComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reply     Reply?
+
+  createdAt DateTime  @default(now())
+}
+
+model Reply {
+  id          String      @id @default(cuid())
+  commentId   String
+  staffLinkId String      @unique
+  message     String
+  status      ReplyStatus @default(PENDING)
+  error       String?
+
+  comment     FbComment   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  staffLink   StaffLink   @relation(fields: [staffLinkId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([commentId])
+  @@index([status])
+}
+
+model WebhookEvent {
+  id         String   @id @default(cuid())
+  source     String
+  eventType  String
+  dedupeKey  String?  @unique
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  @@index([source, receivedAt])
+}
